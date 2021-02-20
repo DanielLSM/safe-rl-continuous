@@ -43,17 +43,22 @@ if len(gpus) > 0:
 
 from utils import save_pickle
 
+seed = 99
+np.random.seed(seed)
+tf.random.set_seed(seed)
+
 
 class Environment(Process):
     def __init__(self,
                  env_idx,
                  child_conn,
+                 env,
                  env_name,
                  state_size,
                  action_size,
                  visualize=False):
         super(Environment, self).__init__()
-        self.env = gym.make(env_name)
+        self.env = env
         self.is_render = visualize
         self.env_idx = env_idx
         self.child_conn = child_conn
@@ -180,14 +185,20 @@ class Critic_Model:
 
 class PPOAgent:
     # PPO Main Optimization Algorithm
-    def __init__(self, env_name, model_name=""):
+    def __init__(self,
+                 env,
+                 env_name,
+                 action_size,
+                 state_size,
+                 episodes=5000,
+                 model_name=""):
         # Initialization
         # Environment and PPO parameters
+        self.env = env
         self.env_name = env_name
-        self.env = gym.make(env_name)
-        self.action_size = self.env.action_space.shape[0]
-        self.state_size = self.env.observation_space.shape
-        self.EPISODES = 5000  # total episodes to train through all environments
+        self.action_size = action_size
+        self.state_size = state_size
+        self.EPISODES = episodes  # total episodes to train through all environments
         self.episode = 0  # used to track the episodes total count of episodes played through all thread environments
         self.max_average = 0  # when average score is above 0 model will be saved
         self.lr = 0.00025
@@ -430,12 +441,12 @@ class PPOAgent:
 
     def run_multiprocesses(self,
                            num_worker=4,
-                           save_data_every_n_episodes=20,
+                           save_data_every_n_episodes=500,
                            experiment_name='default'):
         works, parent_conns, child_conns = [], [], []
         for idx in range(num_worker):
             parent_conn, child_conn = Pipe()
-            work = Environment(idx, child_conn, self.env_name,
+            work = Environment(idx, child_conn, self.env, self.env_name,
                                self.state_size[0], self.action_size, True)
             work.start()
             works.append(work)
@@ -545,9 +556,42 @@ class PPOAgent:
 if __name__ == "__main__":
     # newest gym fixed bugs in 'BipedalWalker-v2' and now it's called 'BipedalWalker-v3'
     # env_name = 'BipedalWalker-v3'
+
+    from safe_lunar_env import SafeLunarEnv
+    from shield import Shield
+    from utils import return_date
+
     env_name = "LunarLanderContinuous-v2"
-    agent = PPOAgent(env_name)
-    #agent.run_batch() # train as PPO
-    agent.run_multiprocesses(
-        num_worker=16)  # train PPO multiprocessed (fastest)
+    env = gym.make(env_name)
+    # action_size = env.action_space.shape[0]
+    # state_size = env.observation_space.shape
+    # agent = PPOAgent(env, env_name, action_size, state_size)
+    # agent.run_batch()  # train as PPO
+
+    train = 1
+
+    if train == 0:
+        shield = None
+        env_name = "SafeLunarEnvWithoutShield"
+        env = SafeLunarEnv(env, shield=shield)
+        action_size = env.action_size
+        state_size = env.state_size
+        agent = PPOAgent(env, env_name, action_size, state_size)
+        agent.run_multiprocesses(
+            num_worker=16, experiment_name='without_shield' +
+            return_date())  # train PPO multiprocessed (fastest)
+        # agent.run_batch()  # train as PPO
+    elif train == 1:
+        shield = Shield(thresholds_main_engine=0.7)
+        env_name = "SafeLunarEnvShieldYes"
+        env = SafeLunarEnv(env, shield=shield)
+        action_size = env.action_size
+        state_size = env.state_size
+        agent = PPOAgent(env, env_name, action_size, state_size)
+        agent.run_multiprocesses(
+            num_worker=16, experiment_name='shield_yes' +
+            return_date())  # train PPO multiprocessed (fastest)
+
+    # agent.run_batch()  # train as PPO
+
     # agent.test()
