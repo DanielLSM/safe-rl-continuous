@@ -395,19 +395,30 @@ class PPOAgent:
 
         return self.average_[-1], SAVING
 
-    def run_batch(self):
+    def run_batch(self,
+                  save_data_every_n_episodes=500,
+                  experiment_name='default'):
         state = self.env.reset()
         state = np.reshape(state, [1, self.state_size[0]])
         done, score, SAVING = False, 0, ''
+        save_data_every_n_episodes = 500
+        meta_data = {
+            'score': [],
+            'avg_return': [],
+            'shield_means': [],
+            'number_of_bad_engine_uses': [],
+            'landed_inside': [],
+            'number_of_crashes': []
+        }
         while True:
             # Instantiate or reset games memory
             states, next_states, actions, rewards, dones, logp_ts = [], [], [], [], [], []
             for t in range(self.Training_batch):
                 # self.env.render()
                 # Actor picks an action
-                action, logp_t, shield_mean = self.act(state)
+                action, logp_t = self.act(state)
                 # Retrieve new state, reward, and whether the state is terminal
-                next_state, reward, done, _ = self.env.step(action[0])
+                next_state, reward, done, info = self.env.step(action[0])
                 # Memorize (state, next_states, action, reward, done, logp_ts) for training
                 states.append(state)
                 next_states.append(
@@ -420,12 +431,28 @@ class PPOAgent:
                 state = np.reshape(next_state, [1, self.state_size[0]])
                 score += reward
                 if done:
-                    self.episode += 1
                     average, SAVING = self.PlotModel(score, self.episode)
+
+                    meta_data['shield_means'].append(info['shield_mean'])
+                    meta_data['number_of_bad_engine_uses'].append(
+                        info['number_of_bad_engine_uses'])
+                    meta_data['landed_inside'].append(
+                        info['number_lands_inside'])
+                    meta_data['score'].append(score)
+                    meta_data['avg_return'].append(average)
+                    meta_data['number_of_crashes'].append(
+                        info['number_of_crashes'])
+
+                    if self.episode % save_data_every_n_episodes:
+                        save_pickle(meta_data, experiment_name)
+                    self.episode += 1
                     print(
-                        "episode: {}/{}, score: {}, average: {:.2f} {}, shield mean {}"
+                        "episode: {}/{}, score: {}, average: {:.2f} {}, shield mean {}, bad engine uses {}, lands inside {}, crashes {}"
                         .format(self.episode, self.EPISODES, score, average,
-                                SAVING, shield_mean))
+                                SAVING, info['shield_mean'],
+                                info['number_of_bad_engine_uses'],
+                                info['number_lands_inside'],
+                                info['number_of_crashes']))
                     self.writer.add_scalar(f'Workers:{1}/score_per_episode',
                                            score, self.episode)
                     self.writer.add_scalar(f'Workers:{1}/learning_rate',
@@ -569,18 +596,57 @@ if __name__ == "__main__":
     env_name = "LunarLanderContinuous-v2"
     env = gym.make(env_name)
 
-    shield = Shield(thresholds_main_engine=1)
-    env_name = "SafeLunarEnvShieldUpdates"
-    env = SafeLunarEnvUpdates(env,
-                              shield=shield,
-                              update_shield_every_n_episode=100)
-    action_size = env.action_size
-    state_size = env.state_size
-    agent = PPOAgent(env, env_name, action_size, state_size)
-    agent.run_multiprocesses(
-        num_worker=16, experiment_name='shield_updates' +
-        return_date())  # train PPO multiprocessed (fastest)
+    train = 2
 
-    # agent.run_batch()  # train as PPO
+    if train == 0:
+        # runs shield updates on multiprocessing
+        shield = Shield(thresholds_main_engine=1)
+        env_name = "SafeLunarEnvShieldUpdates"
+        env = SafeLunarEnvUpdates(env,
+                                  shield=shield,
+                                  update_shield_every_n_episode=100)
+        action_size = env.action_size
+        state_size = env.state_size
+        agent = PPOAgent(env, env_name, action_size, state_size)
+        agent.run_multiprocesses(
+            num_worker=16, experiment_name='shield_updates' +
+            return_date())  # train PPO multiprocessed (fastest)
+    elif train == 1:
+        # runs shield updates, single thread
+        shield = Shield(thresholds_main_engine=1)
+        env_name = "SafeLunarEnvShieldUpdatesLatest"
+        env = SafeLunarEnvUpdates(env,
+                                  shield=shield,
+                                  update_shield_every_n_episode=100)
+        action_size = env.action_size
+        state_size = env.state_size
+        agent = PPOAgent(env, env_name, action_size, state_size, episodes=5000)
+        # agent.run_batch(experiment_name='shield_updates_latest_' +
+        #                 return_date())  # train as PPO
+        agent.test()
 
-    # agent.test()
+    elif train == 2:
+        # runs with no shield
+        shield = None
+        env_name = "EnvWithoutShield"
+        env = SafeLunarEnvUpdates(env,
+                                  shield=shield,
+                                  update_shield_every_n_episode=100)
+        action_size = env.action_size
+        state_size = env.state_size
+        agent = PPOAgent(env, env_name, action_size, state_size, episodes=5000)
+        agent.run_batch(experiment_name='without_shield_' +
+                        return_date())  # train as PPO
+    elif train == 3:
+        # runs with perfect shield
+        shield = Shield(thresholds_main_engine=0.7)
+        env_name = "PerfectShield"
+        env = SafeLunarEnvUpdates(env,
+                                  shield=shield,
+                                  update_shield_every_n_episode=100)
+        action_size = env.action_size
+        state_size = env.state_size
+        agent = PPOAgent(env, env_name, action_size, state_size, episodes=5000)
+        # agent.run_batch(experiment_name='perfect_shield_' +
+        #                 return_date())  # train as PPO
+        agent.test()

@@ -30,7 +30,10 @@ class SafeLunarEnvUpdates(gym.Wrapper):
         self.internal_episode = -1
         self.update_shield_every_n_episode = update_shield_every_n_episode
         self.user_feedback_shield = UserFeedbackShield()
-
+        self.number_of_bad_engine = 0
+        self.landed_inside = 0
+        self.crashed = 0
+        # info_to_send = {'number_of_bad_engine_uses': self.number_of_bad_engine}
         # self.observation_space.shape[0] = env.observation_space.shape[0]
 
     def step(self, action):
@@ -38,12 +41,21 @@ class SafeLunarEnvUpdates(gym.Wrapper):
             action = self.shield.shield_action(action)
             # print("this never happens")
         next_state, reward, done, info = self.env.step(action)
+        if done:
+            if reward == 100:
+                self.landed_inside += 1
+            elif reward == -100:
+                self.crashed += 1
+            else:
+                import ipdb
+                ipdb.set_trace()
 
         if np.abs(action[0]) > 0.7:
             # if self.shield.mean < 0.7:
             #     import ipdb
             #     ipdb.set_trace()
             #inverse idea give penalty from 0 to 0.5, but not above
+            self.number_of_bad_engine += 1
             self.bad_action = action
             penalty_ratio = shift_interval(0.7, 1, 0, 1, np.abs(action[0]))
             reward = reward - (2 * penalty_ratio)
@@ -54,13 +66,29 @@ class SafeLunarEnvUpdates(gym.Wrapper):
             self.warning_state = -1
 
         next_state = np.append(next_state, self.warning_state)
-        return next_state, reward, done, info
+
+        if done:
+            info_to_send = {
+                'number_of_bad_engine_uses':
+                self.number_of_bad_engine,
+                'number_lands_inside':
+                self.landed_inside,
+                'shield_mean':
+                self.shield.thresholds_main_engine if self.shield else None,
+                'number_of_crashes':
+                self.crashed
+            }
+        else:
+            info_to_send = info
+        return next_state, reward, done, info_to_send
 
     def reset(self):
+        self.number_of_bad_engine = 0
+
         self.warning_state = -1
         self.internal_episode += 1
 
-        if self.bad_action is not None:
+        if (self.bad_action is not None) and self.shield is not None:
             result = self.user_feedback_shield.update_oracle_with_last_action(
                 self.bad_action)
             if result:

@@ -26,18 +26,14 @@ class SafeLunarEnv(gym.Wrapper):
         stat_size = list(self.state_size)
         stat_size[0] += 1
         self.state_size = tuple(stat_size)  #its the warning state
-
         # self.observation_space.shape[0] = env.observation_space.shape[0]
+        print("hello")
 
     def step(self, action):
+        # raise "what the fuck"
         if self.shield:
             action = self.shield.shield_action(action)
-            # print("this never happens")
         next_state, reward, done, info = self.env.step(action)
-        # print(next_state)
-        # done_explosion, reward_explosion = self.check_explosion(*action)
-        # import ipdb
-        # ipdb.set_trace()
 
         if np.abs(action[0]) > 0.7:
             #inverse idea give penalty from 0 to 0.5, but not above
@@ -51,10 +47,6 @@ class SafeLunarEnv(gym.Wrapper):
             self.warning_state = -1
 
         next_state = np.append(next_state, self.warning_state)
-        # print(next_state)
-        # done = done or done_explosion
-        # reward = reward + reward_explosion
-        # print(self.steps_to_explosion)
         return next_state, reward, done, info
 
     def reset(self):

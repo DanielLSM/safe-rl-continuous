@@ -568,7 +568,7 @@ if __name__ == "__main__":
     # agent = PPOAgent(env, env_name, action_size, state_size)
     # agent.run_batch()  # train as PPO
 
-    train = 1
+    train = 0
 
     if train == 0:
         shield = None
@@ -591,7 +591,21 @@ if __name__ == "__main__":
         agent.run_multiprocesses(
             num_worker=16, experiment_name='shield_yes' +
             return_date())  # train PPO multiprocessed (fastest)
-
-    # agent.run_batch()  # train as PPO
+    elif train == -1:
+        env_name = "LunarLanderContinuous-v2"
+        env = gym.make(env_name)
+        action_size = env.action_space.shape[0]
+        state_size = env.observation_space.shape
+        agent = PPOAgent(env, env_name, action_size, state_size)
+        agent.run_batch()  # train as PPO
+    elif train == -2:
+        shield = Shield(thresholds_main_engine=0.7)
+        env_name = "SafeLunarEnvShieldYes"
+        env = SafeLunarEnv(env, shield=shield)
+        action_size = env.action_size
+        state_size = env.state_size
+        agent = PPOAgent(env, env_name, action_size, state_size)
+        agent.test()
 
     # agent.test()
+    # agent.run_batch()  # train as PPO

@@ -66,42 +66,9 @@ def moving_average(rewards, last_N):
 
 if __name__ == "__main__":
 
-    mo, stds = moving_average(rewards=[1, 2, 1, 2, 2, 2], last_N=2)
-    print(mo, stds)
+    # mo, stds = moving_average(rewards=[1, 2, 1, 2, 2, 2], last_N=2)
+    # print(mo, stds)
 
-    # ma = running_mean([1, 2, 3, 4, 4, 5], 4)
-    # print(ma)
-
-    # ma = moving_average(rewards=[1, 2, 1, 2, 2, 2], last_N=3)
-    # print(ma)
-
-    # a = [1, 2, 3, 3, 4]
-    # b = {"data": [1, 2, 3, 4]}
-    # save_pickle(a, "test_list")
-    # save_pickle(b, "test_dict")
-
-    # test_list = load_pickle("test_list")
-    # test_dict = load_pickle("test_dict")
-
-    # print(test_list)
-    # print(test_dict)
-    # print(load_pickle("default"))
-
-    # print(shift_interval(0, 1, 0.9, 1, 0.5))
-
-    # print(shift_interval(0.9, 1, 0, 1, 0.5))
-    # ========================================================
-    # action = np.array([0.95, 0])
-    # reward = 0
-    # if np.abs(action[0]) > 0.9:
-    #     penalty_ratio = shift_interval(0.9, 1, 0, 1, np.abs(action[0]))
-    #     reward = reward - 20 * penalty_ratio
-    #     warning_state = penalty_ratio
-
-    # print(penalty_ratio)
-    # print(reward)
-
-    n = np.array([0, 1])
-    n = None
-    if n is not None:
-        print("hello")
+    a = [1, 2, 3, 4, 5, 6]
+    b = a[:2]
+    print(b)
