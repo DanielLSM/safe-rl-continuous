@@ -20,6 +20,6 @@ class Shield:
 
 if __name__ == '__main__':
     shield = Shield(thresholds_main_engine=0.7)
-    a = np.array([1, 1])
+    a = np.array([-0.8, 1])
     action = shield.shield_action(a)
     print(action)

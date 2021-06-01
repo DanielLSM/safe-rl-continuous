@@ -48,6 +48,28 @@ def moving_average(rewards, last_N):
     return averages, stds
 
 
+def moving_std(rewards, last_N):
+    scores = []
+    averages = []
+    stds = []
+    for _ in range(len(rewards)):
+        scores.append(rewards[_])
+        average = sum(scores[-last_N:]) / len(scores[-last_N:])
+        averages.append(average)
+        # import ipdb
+        # ipdb.set_trace()
+        x = scores[-last_N:]
+        x_mean = averages[-last_N:]
+        diff = []
+        for _ in range(len(x)):
+            diff.append((abs(x[_] - x_mean[_]))**(1 / 2))
+        diff_sum = sum(diff)
+
+        stds.append(diff_sum / last_N)
+
+    return stds
+
+
 # def moving_average(rewards, last_N):
 #     cumsum, moving_aves = [0], []
 

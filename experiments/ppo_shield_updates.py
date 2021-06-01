@@ -43,9 +43,9 @@ if len(gpus) > 0:
 
 from utils import save_pickle
 
-seed = 99
-np.random.seed(seed)
-tf.random.set_seed(seed)
+# seed = 99
+# np.random.seed(seed)
+# tf.random.set_seed(seed)
 
 
 class Environment(Process):
@@ -82,10 +82,12 @@ class Environment(Process):
                 state = self.env.reset()
                 state = np.reshape(state, [1, self.state_size])
 
-            self.child_conn.send([
-                state, reward, done, info,
-                self.env.shield.thresholds_main_engine
-            ])
+            # self.child_conn.send([
+            #     state, reward, done, info,
+            #     self.env.shield.thresholds_main_engine
+            # ])
+
+            self.child_conn.send([state, reward, done, info, None])
 
 
 class Actor_Model:
@@ -197,6 +199,7 @@ class PPOAgent:
                  model_name=""):
         # Initialization
         # Environment and PPO parameters
+        self.save_weights_every_n = 200
         self.env = env
         self.env_name = env_name
         self.action_size = action_size
@@ -232,6 +235,7 @@ class PPOAgent:
 
         self.Actor_name = f"{self.env_name}_PPO_Actor.h5"
         self.Critic_name = f"{self.env_name}_PPO_Critic.h5"
+
         #self.load() # uncomment to continue training from old weights
 
         # do not change bellow
@@ -357,6 +361,9 @@ class PPOAgent:
         self.replay_count += 1
 
     def load(self):
+        print(self.Actor_name)
+        print(self.Critic_name)
+
         self.Actor.Actor.load_weights(self.Actor_name)
         self.Critic.Critic.load_weights(self.Critic_name)
 
@@ -392,6 +399,9 @@ class PPOAgent:
             #K.set_value(self.Critic.Critic.optimizer.learning_rate, self.lr)
         else:
             SAVING = ""
+        if self.episode % self.save_weights_every_n == 0:
+            self.save()
+            SAVING = "SAVING"
 
         return self.average_[-1], SAVING
 
@@ -408,7 +418,8 @@ class PPOAgent:
             'shield_means': [],
             'number_of_bad_engine_uses': [],
             'landed_inside': [],
-            'number_of_crashes': []
+            'number_of_crashes': [],
+            'number_of_weird': []
         }
         while True:
             # Instantiate or reset games memory
@@ -442,6 +453,8 @@ class PPOAgent:
                     meta_data['avg_return'].append(average)
                     meta_data['number_of_crashes'].append(
                         info['number_of_crashes'])
+                    meta_data['number_of_weird'].append(
+                        info['number_of_weird'])
 
                     if self.episode % save_data_every_n_episodes:
                         save_pickle(meta_data, experiment_name)
@@ -596,7 +609,7 @@ if __name__ == "__main__":
     env_name = "LunarLanderContinuous-v2"
     env = gym.make(env_name)
 
-    train = 2
+    train = 3
 
     if train == 0:
         # runs shield updates on multiprocessing
@@ -621,9 +634,9 @@ if __name__ == "__main__":
         action_size = env.action_size
         state_size = env.state_size
         agent = PPOAgent(env, env_name, action_size, state_size, episodes=5000)
-        # agent.run_batch(experiment_name='shield_updates_latest_' +
-        #                 return_date())  # train as PPO
-        agent.test()
+        agent.run_batch(experiment_name='shield_updates_latest_' +
+                        return_date())  # train as PPO
+        # agent.test()
 
     elif train == 2:
         # runs with no shield
@@ -635,8 +648,13 @@ if __name__ == "__main__":
         action_size = env.action_size
         state_size = env.state_size
         agent = PPOAgent(env, env_name, action_size, state_size, episodes=5000)
-        agent.run_batch(experiment_name='without_shield_' +
-                        return_date())  # train as PPO
+        # agent.run_batch(experiment_name='without_shield_' +
+        #                 return_date())  # train as PPO
+        # agent.run_multiprocesses(
+        #     num_worker=16, experiment_name='without_shield_' +
+        #     return_date())  # train PPO multiprocessed (fastest)
+        agent.test()
+
     elif train == 3:
         # runs with perfect shield
         shield = Shield(thresholds_main_engine=0.7)

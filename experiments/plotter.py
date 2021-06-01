@@ -62,6 +62,7 @@ class Plotter:
         # import ipdb
         # ipdb.set_trace()
         score = metadata[param_name]
+        print(score[-1])
         mean, std = moving_average(score, last_N=last_N)
         if limit_x is not None:
             episodes = range(limit_x)
@@ -112,21 +113,22 @@ if __name__ == '__main__':
     # 'number_of_bad_engine_uses'
     # 'landed_inside'
 
-    pp.plot_general(file_name='without_shield_21-02-2021 21:45:20',
-                    param_name='landed_inside',
-                    last_N=1,
-                    color='red',
-                    limit_x=5000,
-                    range_y=None,
-                    y_ticks=None)
+    pp.plot_general(
+        file_name='shield_updates_latest_27-02-2021 14:26:18',
+        param_name='shield_means',
+        last_N=1,
+        color='red',
+        # limit_x=5000,
+        range_y=None,
+        y_ticks=None)
 
-    pp.plot_general(file_name='shield_updates_latest21-02-2021 18:34:53',
-                    param_name='landed_inside',
-                    last_N=1,
-                    color='green',
-                    limit_x=5000,
-                    range_y=None,
-                    y_ticks=None)
+    # pp.plot_general(file_name='shield_updates_latest21-02-2021 18:34:53',
+    #                 param_name='number_of_bad_engine_uses',
+    #                 last_N=1,
+    #                 color='green',
+    #                 limit_x=5000,
+    #                 range_y=None,
+    #                 y_ticks=None)
 
     # pp.plot_general(file_name='shield_updates_latest21-02-2021 18:34:53',
     #                 param_name='shield_means',

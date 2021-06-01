@@ -33,11 +33,15 @@ class SafeLunarEnvUpdates(gym.Wrapper):
         self.number_of_bad_engine = 0
         self.landed_inside = 0
         self.crashed = 0
+        self.weird = 0
+        self.n_step = 0
         # info_to_send = {'number_of_bad_engine_uses': self.number_of_bad_engine}
         # self.observation_space.shape[0] = env.observation_space.shape[0]
 
     def step(self, action):
+        self.n_step += 1
         if self.shield:
+            # print("never happens")
             action = self.shield.shield_action(action)
             # print("this never happens")
         next_state, reward, done, info = self.env.step(action)
@@ -47,8 +51,7 @@ class SafeLunarEnvUpdates(gym.Wrapper):
             elif reward == -100:
                 self.crashed += 1
             else:
-                import ipdb
-                ipdb.set_trace()
+                self.weird += 1
 
         if np.abs(action[0]) > 0.7:
             # if self.shield.mean < 0.7:
@@ -60,7 +63,10 @@ class SafeLunarEnvUpdates(gym.Wrapper):
             penalty_ratio = shift_interval(0.7, 1, 0, 1, np.abs(action[0]))
             reward = reward - (2 * penalty_ratio)
             self.warning_state = penalty_ratio
-            print(reward)
+            # print("bad reward {} and penalty ratio {}".format(
+            #     reward, penalty_ratio))
+            if penalty_ratio < 0:
+                raise "what the fuck"
             #make a negative reward proportional to the power used
         else:
             self.warning_state = -1
@@ -76,15 +82,19 @@ class SafeLunarEnvUpdates(gym.Wrapper):
                 'shield_mean':
                 self.shield.thresholds_main_engine if self.shield else None,
                 'number_of_crashes':
-                self.crashed
+                self.crashed,
+                'number_of_weird':
+                self.weird
             }
         else:
             info_to_send = info
         return next_state, reward, done, info_to_send
 
     def reset(self):
+        print("steps {} number_of_bad_actions {}".format(
+            self.n_step, self.number_of_bad_engine))
         self.number_of_bad_engine = 0
-
+        self.n_step = 0
         self.warning_state = -1
         self.internal_episode += 1
 

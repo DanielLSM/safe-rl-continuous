@@ -27,9 +27,9 @@ class SafeLunarEnv(gym.Wrapper):
         stat_size[0] += 1
         self.state_size = tuple(stat_size)  #its the warning state
         # self.observation_space.shape[0] = env.observation_space.shape[0]
-        print("hello")
 
     def step(self, action):
+        # print("hello")
         # raise "what the fuck"
         if self.shield:
             action = self.shield.shield_action(action)
@@ -37,8 +37,11 @@ class SafeLunarEnv(gym.Wrapper):
 
         if np.abs(action[0]) > 0.7:
             #inverse idea give penalty from 0 to 0.5, but not above
-            print("eat shit")
             penalty_ratio = shift_interval(0.7, 1, 0, 1, np.abs(action[0]))
+            if penalty_ratio < 0:
+                raise "whatttt"
+            else:
+                print(penalty_ratio)
             reward = reward - (2 * penalty_ratio)
             self.warning_state = penalty_ratio
             print(reward)
