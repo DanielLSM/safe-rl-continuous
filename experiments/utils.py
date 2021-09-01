@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import pickle as pkl
 from datetime import datetime
@@ -68,6 +69,17 @@ def moving_std(rewards, last_N):
         stds.append(diff_sum / last_N)
 
     return stds
+
+
+def kl_divergence(u1, sig1, u2, sig2):
+    term1 = math.log(sig2 / sig1)
+    term2 = (sig1 * sig1 + (u1 - u2) * (u1 - u2)) / (2 * sig2 * sig2)
+    term3 = -1 / 2
+    return term1 + term2 + term3
+
+
+def average(lst):
+    return sum(lst) / len(lst)
 
 
 # def moving_average(rewards, last_N):

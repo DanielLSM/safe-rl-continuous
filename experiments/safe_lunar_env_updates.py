@@ -2,11 +2,13 @@
 # Action is two real values vector from -1 to +1. First controls main engine, -1..0 off, 0..+1 throttle from 50% to 100% power.
 # Engine can't work with less than 50% power.
 # Second value -1.0..-0.5 fire left engine, +0.5..+1.0 fire right engine, -0.5..0.5 off.
+import math
+import random
 import gym
 import numpy as np
 from shield import Shield
 from conjugate_prior import NormalNormalKnownVar
-from utils import shift_interval
+from utils import shift_interval, average, kl_divergence
 
 
 class SafeLunarEnvUpdates(gym.Wrapper):
@@ -117,20 +119,22 @@ class UserFeedbackShield:
     def __init__(self):
         # https://stats.stackexchange.com/questions/237037/bayesian-updating-with-new-data
         # https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
+        # self.shield_distribution_main_engine = NormalNormalKnownVar(
+        #     0.00001, prior_mean=1, prior_var=0.0001)
+
         self.shield_distribution_main_engine = NormalNormalKnownVar(
-            0.00001, prior_mean=1, prior_var=0.0001)
+            0.001, prior_mean=1, prior_var=0.001)
 
         self.oracle_main_engine = NormalNormalKnownVar(0.0001,
                                                        prior_mean=1,
                                                        prior_var=0.00001)
+        self.KL_div = []
 
     def get_current_shield(self):
         return Shield(thresholds_main_engine=self.
                       shield_distribution_main_engine.sample())
 
     def update_oracle_with_last_action(self, last_action):
-        # import ipdb
-        # ipdb.set_trace()
         if np.abs(last_action[0]) > 0.7:
             self.oracle_main_engine = NormalNormalKnownVar(
                 0.0001,
@@ -141,9 +145,22 @@ class UserFeedbackShield:
         else:
             return 1
 
-    def update_shield_main_from_oracle(self):
-        self.shield_distribution_main_engine = self.shield_distribution_main_engine.update(
-            [self.oracle_main_engine.sample()])
+    def update_shield_main_from_oracle(self, baysian_updates=1):
+        samples = []
+        for _ in range(baysian_updates):
+            samples.append(self.oracle_main_engine.sample())
+        # self.shield_distribution_main_engine = self.shield_distribution_main_engine.update(
+        #     [self.oracle_main_engine.sample()])
+        for _ in range(baysian_updates):
+            self.shield_distribution_main_engine = self.shield_distribution_main_engine.update(
+                samples)
+        #TODO: somehow, the updates are slow lol
+        # print(_, self.shield_distribution_main_engine.mean, samples)
+
+        # print(
+        #     "{} mean of main shield distrib and {} mean of main oracle distrib and a samples is like {}"
+        #     .format(self.shield_distribution_main_engine.mean,
+        #             self.oracle_main_engine.mean, samples))
 
     def update_shield(self, last_action):
         result = self.update_oracle_with_last_action(last_action)
@@ -181,7 +198,88 @@ class UserFeedbackShield:
         print(model.sample())
         plt.show()
 
+    def demo_with_people(self):
+        from matplotlib import pyplot as plt
+        for _ in range(1000):
+            last_action = [self.shield_distribution_main_engine.sample()]
+            result = self.update_with_people(last_action)
+            if result:
+                print("shield converged after {} episodes with last action {}".
+                      format(_, last_action))
+                break
+            self.shield_distribution_main_engine.plot(0.5, 1)
+
+        plt.title(
+            "shield_distrib, 10 oracles, 20 coin flippers converged after 156 loops"
+        )
+        plt.show()
+
+        #TODO:KL
+        # plt.title("KL_div")
+        # print(self.KL_div[1:])
+        # plt.plot(self.KL_div[1:])
+        # plt.show()
+
+    def update_with_people(self,
+                           last_action,
+                           number_of_oracles=10,
+                           n_coin_flippers=20,
+                           size_of_possibilities=3):
+        self.previous_oracle = self.oracle_main_engine
+
+        mean = self.oracle_main_engine.mean
+        sig_squared = self.oracle_main_engine.var
+        mapping_func = [
+            mean - 3 / 2 * math.sqrt(sig_squared), mean,
+            mean + 3 / 2 * math.sqrt(sig_squared)
+        ]
+        # mapping_func = [
+        #     mean - (3 * sig_squared) / 2, mean, mean + (3 * sig_squared) / 2
+        # ]
+
+        scores = []
+
+        if np.abs(last_action[0]) > 0.7:
+            for _ in range(number_of_oracles):
+                scores.append(mapping_func[0])
+            for _ in range(n_coin_flippers):
+                scores.append(random.choice(mapping_func))
+
+            # import ipdb
+            # ipdb.set_trace()
+            new_mean = average(scores)
+
+            print(new_mean)
+            self.oracle_main_engine.mean
+            self.oracle_main_engine = NormalNormalKnownVar(
+                0.0001, prior_mean=(new_mean), prior_var=0.0001)
+
+            u1 = self.previous_oracle.mean
+            sig1 = math.sqrt(self.previous_oracle.var)
+            u2 = self.oracle_main_engine.mean
+            sig2 = math.sqrt(self.oracle_main_engine.var)
+            print(u1, sig1, u2, sig2)
+            kl_div = kl_divergence(u1, sig1, u2, sig2)
+            print(u1, u2)
+            self.KL_div.append(kl_div)
+
+            self.update_shield_main_from_oracle()
+
+            return 0
+        else:
+            # u1 = self.previous_oracle.mean
+            # sig1 = math.sqrt(self.previous_oracle.var)
+            # u2 = self.oracle_main_engine.mean
+            # sig2 = math.sqrt(self.oracle_main_engine.var)
+            # kl_div = kl_divergence(u1, sig1, u2, sig2)
+            # print(kl_div)
+            # self.KL_div.append(kl_div)
+
+            return 1
+
 
 if __name__ == '__main__':
     ufs = UserFeedbackShield()
-    ufs.demo_updates()
+    # ufs.demo_updates()
+    ufs.demo_with_people()
+    # ufs.demo()

@@ -609,7 +609,7 @@ if __name__ == "__main__":
     env_name = "LunarLanderContinuous-v2"
     env = gym.make(env_name)
 
-    train = 3
+    train = 0
 
     if train == 0:
         # runs shield updates on multiprocessing
@@ -665,6 +665,6 @@ if __name__ == "__main__":
         action_size = env.action_size
         state_size = env.state_size
         agent = PPOAgent(env, env_name, action_size, state_size, episodes=5000)
-        # agent.run_batch(experiment_name='perfect_shield_' +
-        #                 return_date())  # train as PPO
-        agent.test()
+        agent.run_batch(experiment_name='perfect_shield_' +
+                        return_date())  # train as PPO
+        # agent.test()
