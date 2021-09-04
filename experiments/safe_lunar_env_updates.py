@@ -122,13 +122,16 @@ class UserFeedbackShield:
         # self.shield_distribution_main_engine = NormalNormalKnownVar(
         #     0.00001, prior_mean=1, prior_var=0.0001)
 
-        self.shield_distribution_main_engine = NormalNormalKnownVar(
-            0.001, prior_mean=1, prior_var=0.001)
-
-        self.oracle_main_engine = NormalNormalKnownVar(0.0001,
-                                                       prior_mean=1,
-                                                       prior_var=0.00001)
         self.KL_div = []
+        self.minimum_var = 0.00001
+        self.minimum_kl_div = 0.5
+        self.kl_div_current = 1
+
+        self.shield_distribution_main_engine = NormalNormalKnownVar(
+            self.minimum_var, prior_mean=1, prior_var=self.minimum_var)
+
+        self.oracle_main_engine = NormalNormalKnownVar(
+            self.minimum_var, prior_mean=0.95, prior_var=self.minimum_var)
 
     def get_current_shield(self):
         return Shield(thresholds_main_engine=self.
@@ -144,23 +147,6 @@ class UserFeedbackShield:
             return 0
         else:
             return 1
-
-    def update_shield_main_from_oracle(self, baysian_updates=1):
-        samples = []
-        for _ in range(baysian_updates):
-            samples.append(self.oracle_main_engine.sample())
-        # self.shield_distribution_main_engine = self.shield_distribution_main_engine.update(
-        #     [self.oracle_main_engine.sample()])
-        for _ in range(baysian_updates):
-            self.shield_distribution_main_engine = self.shield_distribution_main_engine.update(
-                samples)
-        #TODO: somehow, the updates are slow lol
-        # print(_, self.shield_distribution_main_engine.mean, samples)
-
-        # print(
-        #     "{} mean of main shield distrib and {} mean of main oracle distrib and a samples is like {}"
-        #     .format(self.shield_distribution_main_engine.mean,
-        #             self.oracle_main_engine.mean, samples))
 
     def update_shield(self, last_action):
         result = self.update_oracle_with_last_action(last_action)
@@ -198,6 +184,21 @@ class UserFeedbackShield:
         print(model.sample())
         plt.show()
 
+    def update_shield_main_from_oracle(self, baysian_updates=1):
+        samples = []
+        for _ in range(baysian_updates):
+            samples.append(self.oracle_main_engine.sample())
+        # self.shield_distribution_main_engine = self.shield_distribution_main_engine.update(
+        #     [self.oracle_main_engine.sample()])
+        for _ in range(baysian_updates):
+            self.shield_distribution_main_engine = self.shield_distribution_main_engine.update(
+                samples)
+            current_var = self.shield_distribution_main_engine.var
+            self.shield_distribution_main_engine.var = max(
+                current_var, self.minimum_var)
+        #TODO: somehow, the updates are slow lol
+        # print(_, self.shield_distribution_main_engine.mean, samples)
+
     def demo_with_people(self):
         from matplotlib import pyplot as plt
         for _ in range(1000):
@@ -208,22 +209,34 @@ class UserFeedbackShield:
                       format(_, last_action))
                 break
             self.shield_distribution_main_engine.plot(0.5, 1)
+            # print(self.shield_distribution_main_engine.var)
 
-        plt.title(
-            "shield_distrib, 10 oracles, 20 coin flippers converged after 156 loops"
-        )
+        # plt.title(
+        #     "shield_distrib, {} oracles, {} coin flippers converged after 156 loops"
+        # )
         plt.show()
 
         #TODO:KL
-        # plt.title("KL_div")
+        plt.title("KL_div")
         # print(self.KL_div[1:])
-        # plt.plot(self.KL_div[1:])
-        # plt.show()
+        plt.plot(self.KL_div[1:])
+        plt.show()
+
+    def compute_kl_div(self, dist1, dist2):
+        u1 = dist1.mean
+        sig1 = math.sqrt(dist1.var)
+        u2 = dist2.mean
+        sig2 = math.sqrt(dist2.var)
+        kl_div = kl_divergence(u1, sig1, u2, sig2)
+        print(u1, sig1, u2, sig2)
+        print(kl_div)
+        self.KL_div.append(kl_div)
+        return kl_div
 
     def update_with_people(self,
                            last_action,
                            number_of_oracles=10,
-                           n_coin_flippers=20,
+                           n_coin_flippers=0,
                            size_of_possibilities=3):
         self.previous_oracle = self.oracle_main_engine
 
@@ -233,47 +246,46 @@ class UserFeedbackShield:
             mean - 3 / 2 * math.sqrt(sig_squared), mean,
             mean + 3 / 2 * math.sqrt(sig_squared)
         ]
-        # mapping_func = [
-        #     mean - (3 * sig_squared) / 2, mean, mean + (3 * sig_squared) / 2
-        # ]
 
         scores = []
 
         if np.abs(last_action[0]) > 0.7:
             for _ in range(number_of_oracles):
-                scores.append(mapping_func[0])
+
+                mean = self.oracle_main_engine.mean
+                if mean > 0.7:
+                    scores.append(mapping_func[0])
+                else:
+                    scores.append(mapping_func[1])
+
             for _ in range(n_coin_flippers):
                 scores.append(random.choice(mapping_func))
 
-            # import ipdb
-            # ipdb.set_trace()
             new_mean = average(scores)
 
-            print(new_mean)
-            self.oracle_main_engine.mean
             self.oracle_main_engine = NormalNormalKnownVar(
-                0.0001, prior_mean=(new_mean), prior_var=0.0001)
+                self.minimum_var,
+                prior_mean=(new_mean),
+                prior_var=self.minimum_var)
 
-            u1 = self.previous_oracle.mean
-            sig1 = math.sqrt(self.previous_oracle.var)
-            u2 = self.oracle_main_engine.mean
-            sig2 = math.sqrt(self.oracle_main_engine.var)
-            print(u1, sig1, u2, sig2)
-            kl_div = kl_divergence(u1, sig1, u2, sig2)
-            print(u1, u2)
-            self.KL_div.append(kl_div)
+            print("Var main engine", self.oracle_main_engine.var)
+            # kl_div = self.compute_kl_div(self.previous_oracle,
+            #                              self.oracle_main_engine)
+
+            self.kl_div_current = self.compute_kl_div(
+                self.oracle_main_engine, self.shield_distribution_main_engine)
 
             self.update_shield_main_from_oracle()
 
             return 0
+        elif np.greater(self.kl_div_current, self.minimum_kl_div):
+            print("kl_div is {} self.minim_kl_div is {}".format(
+                self.kl_div_current, self.minimum_kl_div))
+            self.kl_div_current = self.compute_kl_div(
+                self.oracle_main_engine, self.shield_distribution_main_engine)
+            self.update_shield_main_from_oracle()
+            return 0
         else:
-            # u1 = self.previous_oracle.mean
-            # sig1 = math.sqrt(self.previous_oracle.var)
-            # u2 = self.oracle_main_engine.mean
-            # sig2 = math.sqrt(self.oracle_main_engine.var)
-            # kl_div = kl_divergence(u1, sig1, u2, sig2)
-            # print(kl_div)
-            # self.KL_div.append(kl_div)
 
             return 1
 
