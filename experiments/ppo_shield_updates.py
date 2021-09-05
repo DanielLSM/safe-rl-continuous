@@ -622,7 +622,7 @@ if __name__ == "__main__":
         state_size = env.state_size
         agent = PPOAgent(env, env_name, action_size, state_size)
         agent.run_multiprocesses(
-            num_worker=16, experiment_name='shield_updates' +
+            num_worker=32, experiment_name='shield_updates' +
             return_date())  # train PPO multiprocessed (fastest)
     elif train == 1:
         # runs shield updates, single thread

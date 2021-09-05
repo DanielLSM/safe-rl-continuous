@@ -123,15 +123,16 @@ class UserFeedbackShield:
         #     0.00001, prior_mean=1, prior_var=0.0001)
 
         self.KL_div = []
+        self.start_var = 0.0001
         self.minimum_var = 0.00001
-        self.minimum_kl_div = 0.5
+        self.minimum_kl_div = 0.005
         self.kl_div_current = 1
 
         self.shield_distribution_main_engine = NormalNormalKnownVar(
             self.minimum_var, prior_mean=1, prior_var=self.minimum_var)
 
         self.oracle_main_engine = NormalNormalKnownVar(
-            self.minimum_var, prior_mean=0.95, prior_var=self.minimum_var)
+            self.minimum_var, prior_mean=0.95, prior_var=self.start_var)
 
     def get_current_shield(self):
         return Shield(thresholds_main_engine=self.
@@ -218,7 +219,7 @@ class UserFeedbackShield:
 
         #TODO:KL
         plt.title("KL_div")
-        # print(self.KL_div[1:])
+        print(self.KL_div[1:])
         plt.plot(self.KL_div[1:])
         plt.show()
 
@@ -233,12 +234,26 @@ class UserFeedbackShield:
         self.KL_div.append(kl_div)
         return kl_div
 
+    def build_population_quiz(self, number_of_oracles, n_coin_flippers,
+                              mapping_func, last_action):
+        scores = []
+        for _ in range(number_of_oracles):
+
+            mean = self.oracle_main_engine.mean
+            if mean > 0.7:
+                scores.append(mapping_func[0])
+            else:
+                scores.append(mapping_func[1])
+        for _ in range(n_coin_flippers):
+            scores.append(random.choice(mapping_func))
+
+        return scores
+
     def update_with_people(self,
                            last_action,
                            number_of_oracles=10,
                            n_coin_flippers=0,
                            size_of_possibilities=3):
-        self.previous_oracle = self.oracle_main_engine
 
         mean = self.oracle_main_engine.mean
         sig_squared = self.oracle_main_engine.var
@@ -247,19 +262,10 @@ class UserFeedbackShield:
             mean + 3 / 2 * math.sqrt(sig_squared)
         ]
 
-        scores = []
+        scores = self.build_population_quiz(number_of_oracles, n_coin_flippers,
+                                            mapping_func, last_action)
 
         if np.abs(last_action[0]) > 0.7:
-            for _ in range(number_of_oracles):
-
-                mean = self.oracle_main_engine.mean
-                if mean > 0.7:
-                    scores.append(mapping_func[0])
-                else:
-                    scores.append(mapping_func[1])
-
-            for _ in range(n_coin_flippers):
-                scores.append(random.choice(mapping_func))
 
             new_mean = average(scores)
 
@@ -279,6 +285,14 @@ class UserFeedbackShield:
 
             return 0
         elif np.greater(self.kl_div_current, self.minimum_kl_div):
+
+            new_mean = average(scores)
+
+            self.oracle_main_engine = NormalNormalKnownVar(
+                self.minimum_var,
+                prior_mean=(new_mean),
+                prior_var=self.minimum_var)
+
             print("kl_div is {} self.minim_kl_div is {}".format(
                 self.kl_div_current, self.minimum_kl_div))
             self.kl_div_current = self.compute_kl_div(
