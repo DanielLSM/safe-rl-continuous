@@ -503,8 +503,25 @@ class PPOAgent:
         dones = [[] for _ in range(num_worker)]
         logp_ts = [[] for _ in range(num_worker)]
         score = [0 for _ in range(num_worker)]
-        meta_data = {'return': [], 'avg_return': []}
         shield_means = [0 for _ in range(num_worker)]
+        number_of_bad_engine_uses = [0 for _ in range(num_worker)]
+        landed_inside = [0 for _ in range(num_worker)]
+        number_of_crashes = [0 for _ in range(num_worker)]
+        number_of_weird = [0 for _ in range(num_worker)]
+        kl_div = [0 for _ in range(num_worker)]
+
+        meta_data = {
+            'return': [],
+            'avg_return': [],
+            'shield_means': [],
+            'number_of_bad_engine_uses': [],
+            'landed_inside': [],
+            'number_of_crashes': [],
+            'number_of_weird': [],
+            'kl_div': []
+        }
+        # meta_data = {'return': [], 'avg_return': []}
+        # shield_means = [0 for _ in range(num_worker)]
 
         state = [0 for _ in range(num_worker)]
         for worker_id, parent_conn in enumerate(parent_conns):
@@ -521,14 +538,36 @@ class PPOAgent:
                 logp_ts[worker_id].append(logp_pi[worker_id])
 
             for worker_id, parent_conn in enumerate(parent_conns):
-                next_state, reward, done, _, shield_mean = parent_conn.recv()
+                # lool = parent_conn.recv()
+                # print(lool)
+                next_state, reward, done, info, _ = parent_conn.recv()
                 states[worker_id].append(state[worker_id])
                 next_states[worker_id].append(next_state)
                 rewards[worker_id].append(reward)
                 dones[worker_id].append(done)
                 state[worker_id] = next_state
                 score[worker_id] += reward
-                shield_means[worker_id] = shield_mean
+                # info_to_send = {
+                #     'number_of_bad_engine_uses':
+                #     self.number_of_bad_engine,
+                #     'number_lands_inside':
+                #     self.landed_inside,
+                #     'shield_mean':
+                #     self.shield.thresholds_main_engine if self.shield else None,
+                #     'number_of_crashes':
+                #     self.crashed,
+                #     'number_of_weird':
+                #     self.weird
+                # }
+                if info != {}:
+                    shield_means[worker_id] = info['shield_mean']
+                    number_of_bad_engine_uses[worker_id] = info[
+                        'number_of_bad_engine_uses']
+
+                    landed_inside[worker_id] = info['number_lands_inside']
+                    number_of_crashes[worker_id] = info['number_of_crashes']
+                    number_of_weird[worker_id] = info['number_of_weird']
+                    kl_div[worker_id] = info['kl_div']
 
                 if done:
                     if self.episode % save_data_every_n_episodes:
@@ -538,12 +577,31 @@ class PPOAgent:
                                                      self.episode)
                     meta_data['return'].append(score[worker_id])
                     meta_data['avg_return'].append(average)
+                    meta_data['shield_means'].append(shield_means[worker_id])
+                    meta_data['number_of_bad_engine_uses'].append(
+                        number_of_bad_engine_uses[worker_id])
+                    meta_data['landed_inside'].append(landed_inside[worker_id])
+                    meta_data['number_of_crashes'].append(
+                        number_of_crashes[worker_id])
+                    meta_data['number_of_weird'].append(
+                        number_of_weird[worker_id])
+                    meta_data['kl_div'].append(kl_div[worker_id])
+
+                    # meta_data = {
+                    #     'score': [],
+                    #     'avg_return': [],
+                    #     'shield_means': [],
+                    #     'number_of_bad_engine_uses': [],
+                    #     'landed_inside': [],
+                    #     'number_of_crashes': [],
+                    #     'number_of_weird': []
+                    # }
 
                     print(
-                        "episode: {}/{}, worker: {}, score: {}, average: {:.2f} {}, shield mean:{}"
+                        "episode: {}/{}, worker: {}, score: {}, average: {:.2f} {}, shield mean:{}, kl_div: {}"
                         .format(self.episode, self.EPISODES, worker_id,
                                 score[worker_id], average, SAVING,
-                                shield_means[worker_id]))
+                                shield_means[worker_id], kl_div[worker_id]))
                     self.writer.add_scalar(
                         f'Workers:{num_worker}/score_per_episode',
                         score[worker_id], self.episode)
@@ -622,7 +680,7 @@ if __name__ == "__main__":
         state_size = env.state_size
         agent = PPOAgent(env, env_name, action_size, state_size)
         agent.run_multiprocesses(
-            num_worker=32, experiment_name='shield_updates' +
+            num_worker=1, experiment_name='shield_updates' +
             return_date())  # train PPO multiprocessed (fastest)
     elif train == 1:
         # runs shield updates, single thread
@@ -648,12 +706,12 @@ if __name__ == "__main__":
         action_size = env.action_size
         state_size = env.state_size
         agent = PPOAgent(env, env_name, action_size, state_size, episodes=5000)
-        # agent.run_batch(experiment_name='without_shield_' +
-        #                 return_date())  # train as PPO
+        agent.run_batch(experiment_name='without_shield_' +
+                        return_date())  # train as PPO
         # agent.run_multiprocesses(
         #     num_worker=16, experiment_name='without_shield_' +
         #     return_date())  # train PPO multiprocessed (fastest)
-        agent.test()
+        # agent.test()
 
     elif train == 3:
         # runs with perfect shield

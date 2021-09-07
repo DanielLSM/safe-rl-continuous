@@ -9,6 +9,7 @@ import numpy as np
 from shield import Shield
 from conjugate_prior import NormalNormalKnownVar
 from utils import shift_interval, average, kl_divergence
+import pickle as pkl
 
 
 class SafeLunarEnvUpdates(gym.Wrapper):
@@ -37,6 +38,7 @@ class SafeLunarEnvUpdates(gym.Wrapper):
         self.crashed = 0
         self.weird = 0
         self.n_step = 0
+        self.action = None
         # info_to_send = {'number_of_bad_engine_uses': self.number_of_bad_engine}
         # self.observation_space.shape[0] = env.observation_space.shape[0]
 
@@ -46,6 +48,7 @@ class SafeLunarEnvUpdates(gym.Wrapper):
             # print("never happens")
             action = self.shield.shield_action(action)
             # print("this never happens")
+        self.action = action
         next_state, reward, done, info = self.env.step(action)
         if done:
             if reward == 100:
@@ -86,7 +89,9 @@ class SafeLunarEnvUpdates(gym.Wrapper):
                 'number_of_crashes':
                 self.crashed,
                 'number_of_weird':
-                self.weird
+                self.weird,
+                'kl_div':
+                self.user_feedback_shield.kl_div_current
             }
         else:
             info_to_send = info
@@ -100,39 +105,84 @@ class SafeLunarEnvUpdates(gym.Wrapper):
         self.warning_state = -1
         self.internal_episode += 1
 
-        if (self.bad_action is not None) and self.shield is not None:
-            result = self.user_feedback_shield.update_oracle_with_last_action(
-                self.bad_action)
-            if result:
-                print("shield converged after {} episodes with last action {}".
-                      format(self.internal_episode, self.bad_action))
-            self.shield = self.user_feedback_shield.get_current_shield()
+        if ((self.crashed or self.bad_action is not None) or
+                self.user_feedback_shield.shield_distribution_main_engine.mean
+                < 0.7) and self.shield is not None:
+            result = self.user_feedback_shield.update_shield(self.action)
+            # if result:
+            #     print("shield converged after {} episodes with last action {}".
+            #           format(self.internal_episode, self.bad_action))
+            if np.greater(self.user_feedback_shield.kl_div_current,
+                          self.user_feedback_shield.minimum_kl_div):
+                self.shield = self.user_feedback_shield.get_current_shield()
 
         self.bad_action = None
+        self.action = None
 
         first_state = self.env.reset()
         first_state = np.append(first_state, self.warning_state)
         return first_state
 
+    # def reset(self):
+    #     print("steps {} number_of_bad_actions {}".format(
+    #         self.n_step, self.number_of_bad_engine))
+    #     self.number_of_bad_engine = 0
+    #     self.n_step = 0
+    #     self.warning_state = -1
+    #     self.internal_episode += 1
+
+    #     if (self.bad_action is not None) and self.shield is not None:
+    #         result = self.user_feedback_shield.update_shield(self.bad_action)
+    #         if result:
+    #             print("shield converged after {} episodes with last action {}".
+    #                   format(self.internal_episode, self.bad_action))
+    #         self.shield = self.user_feedback_shield.get_current_shield()
+
+    #     self.bad_action = None
+
+    #     first_state = self.env.reset()
+    #     first_state = np.append(first_state, self.warning_state)
+    #     return first_state
+
 
 class UserFeedbackShield:
-    def __init__(self):
+    def __init__(self, number_of_oracles=10, n_coin_flippers=0):
         # https://stats.stackexchange.com/questions/237037/bayesian-updating-with-new-data
         # https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
         # self.shield_distribution_main_engine = NormalNormalKnownVar(
         #     0.00001, prior_mean=1, prior_var=0.0001)
+        self.peeps_to_power = 1
 
-        self.KL_div = []
-        self.start_var = 0.0001
+        self.engine_start_var = 0.00005
+        self.engine_known_var = 0.00005
+        self.oracle_start_var = 0.00001
+        self.oracle_known_var = 0.00001
         self.minimum_var = 0.00001
         self.minimum_kl_div = 0.005
-        self.kl_div_current = 1
+        # self.kl_div_current = 1
+
+        self.KL_div = []
+        self.means_of_shield_distrib = [1]
+        self.variences_of_shield_distrib = [self.engine_start_var]
+
+        self.number_of_oracles = number_of_oracles
+        self.n_coin_flippers = n_coin_flippers
 
         self.shield_distribution_main_engine = NormalNormalKnownVar(
-            self.minimum_var, prior_mean=1, prior_var=self.minimum_var)
+            self.engine_known_var,
+            prior_mean=1,
+            prior_var=self.engine_start_var)
 
         self.oracle_main_engine = NormalNormalKnownVar(
-            self.minimum_var, prior_mean=0.95, prior_var=self.start_var)
+            self.oracle_known_var,
+            prior_mean=0.95,
+            prior_var=self.oracle_known_var)
+
+        self.kl_div_current = self.compute_kl_div(
+            self.oracle_main_engine, self.shield_distribution_main_engine)
+
+        # self.shield_distribution_main_engine = NormalNormalKnownVar(
+        #     self.minimum_var, prior_mean=1, prior_var=self.minimum_var)
 
     def get_current_shield(self):
         return Shield(thresholds_main_engine=self.
@@ -150,10 +200,13 @@ class UserFeedbackShield:
             return 1
 
     def update_shield(self, last_action):
-        result = self.update_oracle_with_last_action(last_action)
-        if result:
-            print("shield converged after {} episodes with last action {}".
-                  format(_, last_action))
+        if self.peeps_to_power:
+            result = self.update_with_people(last_action)
+        else:
+            result = self.update_oracle_with_last_action(last_action)
+        # if result:
+        #     print("shield converged after {} episodes with last action {}".
+        #           format(_, last_action))
         return result
 
     def demo_updates(self):
@@ -194,6 +247,10 @@ class UserFeedbackShield:
         for _ in range(baysian_updates):
             self.shield_distribution_main_engine = self.shield_distribution_main_engine.update(
                 samples)
+            self.means_of_shield_distrib.append(
+                self.shield_distribution_main_engine.mean)
+            self.variences_of_shield_distrib.append(
+                self.shield_distribution_main_engine.var)
             current_var = self.shield_distribution_main_engine.var
             self.shield_distribution_main_engine.var = max(
                 current_var, self.minimum_var)
@@ -217,11 +274,11 @@ class UserFeedbackShield:
         # )
         plt.show()
 
-        #TODO:KL
-        plt.title("KL_div")
-        print(self.KL_div[1:])
-        plt.plot(self.KL_div[1:])
-        plt.show()
+        # #TODO:KL
+        # plt.title("KL_div")
+        # print(self.KL_div[1:])
+        # plt.plot(self.KL_div[1:])
+        # plt.show()
 
     def compute_kl_div(self, dist1, dist2):
         u1 = dist1.mean
@@ -251,9 +308,12 @@ class UserFeedbackShield:
 
     def update_with_people(self,
                            last_action,
-                           number_of_oracles=10,
+                           number_of_oracles=0,
                            n_coin_flippers=0,
                            size_of_possibilities=3):
+
+        number_of_oracles = self.number_of_oracles
+        n_coin_flippers = self.n_coin_flippers
 
         mean = self.oracle_main_engine.mean
         sig_squared = self.oracle_main_engine.var
@@ -265,7 +325,8 @@ class UserFeedbackShield:
         scores = self.build_population_quiz(number_of_oracles, n_coin_flippers,
                                             mapping_func, last_action)
 
-        if np.abs(last_action[0]) > 0.7:
+        if np.abs(last_action[0]) > 0.7 or np.greater(self.kl_div_current,
+                                                      self.minimum_kl_div):
 
             new_mean = average(scores)
 
@@ -284,28 +345,90 @@ class UserFeedbackShield:
             self.update_shield_main_from_oracle()
 
             return 0
-        elif np.greater(self.kl_div_current, self.minimum_kl_div):
+        # elif np.greater(self.kl_div_current, self.minimum_kl_div):
 
-            new_mean = average(scores)
+        #     new_mean = average(scores)
 
-            self.oracle_main_engine = NormalNormalKnownVar(
-                self.minimum_var,
-                prior_mean=(new_mean),
-                prior_var=self.minimum_var)
+        #     self.oracle_main_engine = NormalNormalKnownVar(
+        #         self.minimum_var,
+        #         prior_mean=(new_mean),
+        #         prior_var=self.minimum_var)
 
-            print("kl_div is {} self.minim_kl_div is {}".format(
-                self.kl_div_current, self.minimum_kl_div))
-            self.kl_div_current = self.compute_kl_div(
-                self.oracle_main_engine, self.shield_distribution_main_engine)
-            self.update_shield_main_from_oracle()
-            return 0
+        #     print("kl_div is {} self.minim_kl_div is {}".format(
+        #         self.kl_div_current, self.minimum_kl_div))
+        #     self.kl_div_current = self.compute_kl_div(
+        #         self.oracle_main_engine, self.shield_distribution_main_engine)
+        #     self.update_shield_main_from_oracle()
+        #     return 0
         else:
+            # self.kl_div_current = self.minimum_kl_div
 
             return 1
 
 
 if __name__ == '__main__':
-    ufs = UserFeedbackShield()
+
+    # np.random.seed(10)
+
+    np.random.seed(100)
+
+    from matplotlib import pyplot as plt
+    ufs = UserFeedbackShield(number_of_oracles=10, n_coin_flippers=0)
     # ufs.demo_updates()
     ufs.demo_with_people()
+    #TODO:KL
+    plt.title("KL_div oracles:{} flippers:{}".format(ufs.number_of_oracles,
+                                                     ufs.n_coin_flippers))
+    print(ufs.KL_div[1:])
+    plt.plot(ufs.KL_div[1:])
+    plt.show()
+
+    kl_div1 = {"kl": ufs.KL_div[1:]}
+    means_vars_10_0 = {
+        "means": ufs.means_of_shield_distrib,
+        "vars": ufs.variences_of_shield_distrib
+    }
+    pkl.dump(means_vars_10_0, open("means_vars_10_0.pkl", "wb"))
+    pkl.dump(kl_div1, open("kls1.pkl", "wb"))
+
+    ufs = UserFeedbackShield(number_of_oracles=9, n_coin_flippers=1)
+    # ufs.demo_updates()
+    ufs.demo_with_people()
+    #TODO:KL
+    plt.title("KL_div oracles:{} flippers:{}".format(ufs.number_of_oracles,
+                                                     ufs.n_coin_flippers))
+    print(ufs.KL_div[1:])
+    plt.plot(ufs.KL_div[1:])
+    plt.show()
+
+    kl_div2 = {"kl": ufs.KL_div[1:]}
+    pkl.dump(kl_div2, open("kls2.pkl", "wb"))
+    means_vars_9_1 = {
+        "means": ufs.means_of_shield_distrib,
+        "vars": ufs.variences_of_shield_distrib
+    }
+    pkl.dump(means_vars_9_1, open("means_vars_9_1.pkl", "wb"))
+
+    ufs = UserFeedbackShield(number_of_oracles=7, n_coin_flippers=3)
+    # ufs.demo_updates()
+    ufs.demo_with_people()
+    #TODO:KL
+    plt.title("KL_div oracles:{} flippers:{}".format(ufs.number_of_oracles,
+                                                     ufs.n_coin_flippers))
+    print(ufs.KL_div[1:])
+    plt.plot(ufs.KL_div[1:])
+    plt.show()
+
+    kl_div3 = {"kl": ufs.KL_div[1:]}
+    pkl.dump(kl_div3, open("kls3.pkl", "wb"))
+
+    means_vars_7_3 = {
+        "means": ufs.means_of_shield_distrib,
+        "vars": ufs.variences_of_shield_distrib
+    }
+    pkl.dump(means_vars_7_3, open("means_vars_7_3.pkl", "wb"))
+
+    # dict_kl = {'kl': kl_div1, "10%": kl_div2, "30%": kl_div3}
+    # pkl.dump(dict_kl, open("kls.pkl", "wb"))
+
     # ufs.demo()
